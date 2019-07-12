@@ -1,0 +1,217 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "apiProfile": "2018-03-01-hybrid",
+    "parameters": {
+        "namePrefix": {
+            "minLength": 3,
+            "maxLength": 8,
+            "type": "String",
+            "metadata": {
+                "description": "Naming prefix for each new resource created. 3-char min, 8-char max, lowercase alphanumeric"
+            }
+        },
+        "domainName": {
+            "type": "String",
+            "metadata": {
+                "description": "DNS domain name for existing Active Directory domain"
+            }
+        },
+        "adminUsername": {
+            "type": "String",
+            "metadata": {
+                "description": "Name of the Administrator of the existing Active Directory Domain"
+            }
+        },
+        "adminPassword": {
+            "minLength": 12,
+            "type": "SecureString",
+            "metadata": {
+                "description": "Password for the Administrator account of the existing Active Directory Domain"
+            }
+        },
+        "staticIP":{
+            "type": "array"
+        },
+        "nicSubnetUri": {
+            "type": "String",
+            "metadata": {
+                "description": "Resource ID for existing vnet/subnet to which VM NICs should be attached"
+            }
+        },
+        "vmSize": {
+            "type": "String",
+            "metadata": {
+                "description": "Size of the S2D VMs to be created"
+            }
+        },
+        "vmCount": {
+            "defaultValue": 1,
+            "minValue": 1,
+            "maxValue": 3,
+            "type": "Int",
+            "metadata": {
+                "description": "Number of S2D VMs to be created in cluster (Min=1, Max=3)"
+            }
+        },
+        "vmDiskSize": {
+            "defaultValue": 128,
+            "minValue": 128,
+            "maxValue": 1023,
+            "type": "Int",
+            "metadata": {
+                "description": "Size of each data disk in GB on each S2D VM (Min=128, Max=1023)"
+            }
+        },
+        "vmDiskCount": {
+            "defaultValue": 1,
+            "minValue": 1,
+            "maxValue": 32,
+            "type": "Int",
+            "metadata": {
+                "description": "Number of data disks on each S2D VM (Min=1, Max=32). Ensure that the VM size you've selected will support this number of data disks."
+            }
+        },
+        "imagePublisher": {
+            "defaultValue": "MicrosoftWindowsServer",
+            "type": "String"
+        },
+        "imageOffer": {
+            "defaultValue": "WindowsServer",
+            "type": "String"
+        },
+        "imageSKU": {
+            "defaultValue": "2016-Datacenter",
+            "type": "String"
+        },
+        "imageVersion": {
+            "defaultValue": "latest",
+            "type": "String"
+        },
+        "productartifactsLocation": {
+            "type": "String"
+        },
+        "artifactsLocation": {
+            "type": "String"
+        },
+        "artifactsLocationSasToken": {
+            "type": "String"
+        },
+        "location": {
+            "defaultValue": "[resourceGroup().location]",
+            "type": "String",
+            "metadata": {
+                "description": "Location for all resources."
+            }
+        }
+    },
+    "variables": {
+        "apiVersionStorage": "2016-01-01",
+        "vmNamePrefix": "[concat(parameters('namePrefix'),'-wac-')]",
+        "vmLoopTemplateURL": "[concat(parameters('artifactsLocation'),'/nestedtemplates/singleVM.json',parameters('artifactsLocationSasToken'))]",
+        "publicIPAddressType": "Dynamic",
+		"publicIPAddressName": "[concat(parameters('namePrefix'), '-PublicIP')]",
+        "dnsNameForPublicIP": "[tolower(concat('thiswacdns', resourceGroup().name))]",
+        "wacmsifileURL": "[concat(parameters('productartifactsLocation'),'/WindowsAdminCenter1904.1.msi')]",
+        "wacConfigModulesURL": "[concat(parameters('artifactsLocation'),'/extensions/config-wac.ps1.zip',parameters('artifactsLocationSasToken'))]",
+        "wacConfigFunction": "preConfigWAC.ps1\\preConfigWAC"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[concat(variables('vmNamePrefix'), copyindex(), '-nic')]",
+            "location": "[parameters('location')]",
+            "copy": {
+                "name": "nicLoop",
+                "count": "[parameters('vmCount')]"
+            },
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Static",
+                            "privateIPAddress": "[parameters('staticIP')[copyindex()]]",
+                            "subnet": {
+                                "id": "[parameters('nicSubnetUri')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Resources/deployments",
+            "name": "[concat(variables('vmNamePrefix'),copyindex(),'-singleVM')]",
+            "copy": {
+                "name": "virtualMachineLoop",
+                "count": "[parameters('vmCount')]"
+            },
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[variables('vmLoopTemplateURL')]"
+                },
+                "parameters": {
+                    "vmName": {
+                        "value": "[concat(variables('vmNamePrefix'), copyindex())]"
+                    },
+                    "vmSize": {
+                        "value": "[parameters('vmSize')]"
+                    },
+                    "vmDiskCount": {
+                        "value": "[parameters('vmDiskCount')]"
+                    },
+                    "vmDiskSize": {
+                        "value": "[parameters('vmDiskSize')]"
+                    },
+                    "adminUsername": {
+                        "value": "[parameters('adminUsername')]"
+                    },
+                    "adminPassword": {
+                        "value": "[parameters('adminPassword')]"
+                    },
+                    "productartifactsLocation": {
+                        "value": "[parameters('productartifactsLocation')]"
+                    },
+                    "artifactsLocation": {
+                        "value": "[parameters('artifactsLocation')]"
+                    },
+                    "artifactsLocationSasToken": {
+                        "value": "[parameters('artifactsLocationSasToken')]"
+                    },
+                    "imagePublisher": {
+                        "value": "[parameters('imagePublisher')]"
+                    },
+                    "imageOffer": {
+                        "value": "[parameters('imageOffer')]"
+                    },
+                    "imageSKU": {
+                        "value": "[parameters('imageSKU')]"
+                    },
+                    "imageVersion": {
+                        "value": "[parameters('imageVersion')]"
+                    }
+                }
+            }
+        },
+        {
+            "name": "[concat(variables('vmNamePrefix'),'0/wacConfig-localcustomscriptext')]",
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[concat(variables('vmNamePrefix'),'0-singleVM')]"
+            ],			
+            "properties": {
+                "publisher": "Microsoft.Compute",
+                "type": "CustomScriptExtension",
+                "typeHandlerVersion": "1.8",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+					"commandToExecute": "[concat('powershell -ExecutionPolicy Unrestricted -Command \"& {c:\\Users\\AzureStackAdmin\\Documents\\rpdeployment1\\extensions\\ConfigWAC.ps1}\"')]"                    
+                }
+            }
+        }
+    ],
+    "outputs": {}
+}
